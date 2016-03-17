@@ -1,0 +1,96 @@
+#Mighty Hive project data cleaning
+
+abandoned= read.csv('Abandoned_Data_Seed.csv', header = T, stringsAsFactors = FALSE)
+reservation=read.csv('Reservation_Data_Seed.csv', header = T, stringsAsFactors = FALSE)
+attach(abandoned)
+attach(reservation)
+attach(Clean_Data)
+# we first find out the mising data
+abandoned$NoIncoming <- ifelse(abandoned$Incoming_Phone=="",1,0)
+table(abandoned$NoIncoming)
+#There are 1180 Missing Incoming phone number in abandon dataset
+
+# create a new column phone and Copy Contact_Phone for all rows missing Incoming_Phone field else keep incoming_phone.
+abandoned$Phone <- ifelse(abandoned$Incoming_Phone == "", abandoned$Contact_Phone, abandoned$Incoming_Phone)
+
+
+# we perform similar operation to reservation data
+reservation$NoIncoming <- ifelse(reservation$Incoming_Phone=="",1,0)
+#There are 1408 Missing Incoming phone number in reservation dataset
+table(reservation$NoIncoming)
+
+# create a new column phone similar to abandoned table.
+reservation$Phone <- ifelse(reservation$Incoming_Phone=="", reservation$Contact_Phone, reservation$Incoming_Phone)
+
+#Now we create our test group; which has 4266 users
+abandoned_test<- subset(abandoned,Test_Control=='test')
+
+
+# As it is a telemarketing and users are contacted by phone so it is assumed that phone number is the only customer identity
+Purchase_Status <- abandoned_test$Phone %in% reservation$Phone
+summary(Purchase_Status)
+# we found 300 common contacts; i.e these are users who bought the package
+# purchase status-> False means customer did not buy ; TRUE means customer bought
+
+# Now we find how many bought the package from the abandoned group
+abandoned$Purchase_Status <- abandoned$Phone %in% reservation$Phone
+summary(abandoned$Purchase_Status)
+# we analysed that there are total 385 purchases in abandoned group out of which 
+# 300 are for test and 85 for control customers this data contains duplicate values
+# the data contains duplicated values but as the number is large i.e arround 19 we cannot remove it 
+
+#Data Cleaning
+# We create a dummy email 1-> customer has provided email; 0-> customer has not provided email
+abandoned$Dummy_Email <- ifelse(abandoned$Email=="", 0, 1)
+
+# As address has blank values so we create a column to identify blank as unknown
+abandoned$State <- ifelse(abandoned$Address=="",0,1)
+
+abandoned$Outcome <- ifelse(abandoned$Purchase_Status=="TRUE",1,0)
+
+abandoned$Test_variable <- ifelse(abandoned$Test_Control=="test",1,0)
+
+
+# Date manupilation
+abandoned$Session<- chartr(old = ".",new = "-",x=abandoned$Session)
+abandoned$date <- as.Date(abandoned$Session)
+
+reservation$Session<- chartr(old = ".",new = "-",x=reservation$Session)
+reservation$date <- as.Date(reservation$Session)
+
+
+z <- which(abandoned$Phone %in% reservation$Phone, arr.ind = TRUE)
+for(i in 1: length(z))
+{
+  x[i] <- which(reservation$Phone %in% abandoned$Phone[z[i]])
+}
+
+abandoned$Days_in_Between<- ifelse(abandoned$Purchase_Status=="1","1","200")
+
+for(i in 1:length(z))
+{
+  abandoned$Days_in_Between[z[i]]<- ifelse(abandoned$Phone[z[i]]==reservation$Phone[x[i]], difftime(reservation$date[x[i]],abandoned$date[z[i]]),"200")
+}
+
+write.csv(abandoned,"Filtered Dataset.csv")
+
+
+
+# Build Linear Regression Model
+
+TstVar <- with(abandoned, subset(abandoned$Test_variable, abandoned$State =='1'))
+summary(TstVar)
+
+Clean_Data= read.csv('Final_Abandoned_Data.csv', header = T, stringsAsFactors = FALSE)
+lm.out = lm(Outcome ~ Test_variable)
+summary(lm.out)
+plot(Days_in_Between,Outcome, main = "Outcome vs Days_After_retargetting")
+abline(RQ2,col="RED")
+
+RM= lm(Outcome ~ (Test_variable*State)+(Test_variable*Dummy_Email))
+summary(RM)
+RQ2= lm(Outcome ~ Days_in_Between)
+summary(RQ2)
+
+modelABD= lm(Outcome ~ Dummy_Email)
+summary(modelABD)
